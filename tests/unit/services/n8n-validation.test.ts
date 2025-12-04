@@ -248,7 +248,7 @@ describe('n8n-validation', () => {
 
   describe('Workflow Cleaning Functions', () => {
     describe('cleanWorkflowForCreate', () => {
-      it('should remove read-only fields', () => {
+      it('should only include whitelisted properties (n8n-io/n8n#19587 fix)', () => {
         const workflow = {
           id: 'should-be-removed',
           name: 'Test Workflow',
@@ -260,10 +260,21 @@ describe('n8n-validation', () => {
           meta: { test: 'data' },
           active: true,
           tags: ['tag1'],
+          // New n8n properties that cause API errors
+          homeProject: { id: 'proj-123', name: 'Home' },
+          scopes: ['workflow:read'],
+          projectId: 'proj-123',
         };
 
         const cleaned = cleanWorkflowForCreate(workflow as any);
-        
+
+        // Whitelist approach: only allowed properties present
+        expect(cleaned).toHaveProperty('name');
+        expect(cleaned).toHaveProperty('nodes');
+        expect(cleaned).toHaveProperty('connections');
+        expect(cleaned).toHaveProperty('settings');
+
+        // All read-only and new properties excluded
         expect(cleaned).not.toHaveProperty('id');
         expect(cleaned).not.toHaveProperty('createdAt');
         expect(cleaned).not.toHaveProperty('updatedAt');
@@ -271,6 +282,9 @@ describe('n8n-validation', () => {
         expect(cleaned).not.toHaveProperty('meta');
         expect(cleaned).not.toHaveProperty('active');
         expect(cleaned).not.toHaveProperty('tags');
+        expect(cleaned).not.toHaveProperty('homeProject');
+        expect(cleaned).not.toHaveProperty('scopes');
+        expect(cleaned).not.toHaveProperty('projectId');
         expect(cleaned.name).toBe('Test Workflow');
       });
 
@@ -285,10 +299,11 @@ describe('n8n-validation', () => {
         expect(cleaned.settings).toEqual(defaultWorkflowSettings);
       });
 
-      it('should preserve existing settings', () => {
+      it('should preserve existing settings and filter to whitelist', () => {
         const customSettings = {
           executionOrder: 'v0' as const,
           timezone: 'America/New_York',
+          unknownProperty: 'filtered out',
         };
 
         const workflow = {
@@ -299,12 +314,29 @@ describe('n8n-validation', () => {
         };
 
         const cleaned = cleanWorkflowForCreate(workflow as Workflow);
-        expect(cleaned.settings).toEqual(customSettings);
+        expect(cleaned.settings).toEqual({
+          executionOrder: 'v0',
+          timezone: 'America/New_York',
+        });
+        expect(cleaned.settings).not.toHaveProperty('unknownProperty');
+      });
+
+      it('should include staticData when present', () => {
+        const workflow = {
+          name: 'Test Workflow',
+          nodes: [],
+          connections: {},
+          staticData: { cursor: 'abc123' },
+        };
+
+        const cleaned = cleanWorkflowForCreate(workflow as Workflow);
+        expect(cleaned).toHaveProperty('staticData');
+        expect(cleaned.staticData).toEqual({ cursor: 'abc123' });
       });
     });
 
     describe('cleanWorkflowForUpdate', () => {
-      it('should remove all read-only and computed fields', () => {
+      it('should remove all read-only and computed fields using whitelist approach', () => {
         const workflow = {
           id: 'keep-id',
           name: 'Updated Workflow',
@@ -315,7 +347,7 @@ describe('n8n-validation', () => {
           versionId: 'v123',
           versionCounter: 5, // n8n 1.118.1+ field
           meta: { test: 'data' },
-          staticData: { some: 'data' },
+          staticData: { some: 'data' }, // Valid property per n8n API spec
           pinData: { pin: 'data' },
           tags: ['tag1'],
           isArchived: false,
@@ -324,19 +356,29 @@ describe('n8n-validation', () => {
           triggerCount: 5,
           shared: true,
           active: true,
+          // New n8n properties that caused Issue n8n-io/n8n#19587
+          homeProject: { id: 'proj-123', name: 'Home' },
+          scopes: ['workflow:read', 'workflow:write'],
+          projectId: 'proj-123',
           settings: { executionOrder: 'v1' },
         } as any;
 
         const cleaned = cleanWorkflowForUpdate(workflow);
-        
-        // Should remove all these fields
+
+        // WHITELIST approach: Only these properties should be present
+        expect(cleaned).toHaveProperty('name');
+        expect(cleaned).toHaveProperty('nodes');
+        expect(cleaned).toHaveProperty('connections');
+        expect(cleaned).toHaveProperty('settings');
+        expect(cleaned).toHaveProperty('staticData'); // Valid per n8n API spec
+
+        // All other properties should be excluded by whitelist
         expect(cleaned).not.toHaveProperty('id');
         expect(cleaned).not.toHaveProperty('createdAt');
         expect(cleaned).not.toHaveProperty('updatedAt');
         expect(cleaned).not.toHaveProperty('versionId');
-        expect(cleaned).not.toHaveProperty('versionCounter'); // n8n 1.118.1+ compatibility
+        expect(cleaned).not.toHaveProperty('versionCounter');
         expect(cleaned).not.toHaveProperty('meta');
-        expect(cleaned).not.toHaveProperty('staticData');
         expect(cleaned).not.toHaveProperty('pinData');
         expect(cleaned).not.toHaveProperty('tags');
         expect(cleaned).not.toHaveProperty('isArchived');
@@ -345,9 +387,14 @@ describe('n8n-validation', () => {
         expect(cleaned).not.toHaveProperty('triggerCount');
         expect(cleaned).not.toHaveProperty('shared');
         expect(cleaned).not.toHaveProperty('active');
-        
-        // Should keep name and filter settings to safe properties
+        // New properties from n8n-io/n8n#19587 that were leaking through
+        expect(cleaned).not.toHaveProperty('homeProject');
+        expect(cleaned).not.toHaveProperty('scopes');
+        expect(cleaned).not.toHaveProperty('projectId');
+
+        // Should keep name, staticData, and filter settings to safe properties
         expect(cleaned.name).toBe('Updated Workflow');
+        expect(cleaned.staticData).toEqual({ some: 'data' });
         expect(cleaned.settings).toEqual({ executionOrder: 'v1' });
       });
 
@@ -404,19 +451,21 @@ describe('n8n-validation', () => {
             executionOrder: 'v1' as const,
             saveDataSuccessExecution: 'none' as const,
             callerPolicy: 'workflowsFromSameOwner' as const, // Now whitelisted (n8n 1.121+)
-            timeSavedPerExecution: 5, // Filtered out (UI-only property)
+            timeSavedPerExecution: 5, // Valid per n8n OpenAPI spec (workflowSettings.yml)
+            unknownProperty: 'should be filtered', // Not in whitelist
           },
         } as any;
 
         const cleaned = cleanWorkflowForUpdate(workflow);
 
-        // Unsafe properties filtered out, safe properties kept (callerPolicy now whitelisted)
+        // Valid properties kept, unknown properties filtered out
         expect(cleaned.settings).toEqual({
           executionOrder: 'v1',
           saveDataSuccessExecution: 'none',
-          callerPolicy: 'workflowsFromSameOwner'
+          callerPolicy: 'workflowsFromSameOwner',
+          timeSavedPerExecution: 5
         });
-        expect(cleaned.settings).not.toHaveProperty('timeSavedPerExecution');
+        expect(cleaned.settings).not.toHaveProperty('unknownProperty');
       });
 
       it('should preserve callerPolicy and availableInMCP (n8n 1.121+ settings)', () => {
@@ -497,8 +546,8 @@ describe('n8n-validation', () => {
           nodes: [],
           connections: {},
           settings: {
-            timeSavedPerExecution: 5, // Filtered out (UI-only)
-            someOtherProperty: 'value', // Filtered out
+            someUnknownProperty: 'value', // Filtered out (not in whitelist)
+            anotherUnknownProperty: 123, // Filtered out (not in whitelist)
           },
         } as any;
 
@@ -530,6 +579,110 @@ describe('n8n-validation', () => {
           timezone: 'America/New_York'
         });
         expect(cleaned.settings).not.toHaveProperty('someOtherProperty');
+      });
+
+      it('should exclude new n8n properties that cause API errors (n8n-io/n8n#19587)', () => {
+        // This test verifies the fix for https://github.com/n8n-io/n8n/issues/19587
+        // New n8n versions return properties like homeProject, scopes, projectId
+        // that the API doesn't accept in update requests
+        const workflow = {
+          name: 'Test Workflow',
+          nodes: [],
+          connections: {},
+          settings: { executionOrder: 'v1' },
+          // Properties returned by n8n 2.28.3+ that cause "additional properties" error
+          homeProject: { id: 'proj-123', name: 'Home Project' },
+          scopes: ['workflow:read', 'workflow:write', 'workflow:execute'],
+          projectId: 'proj-123',
+          // Other read-only properties
+          id: 'wf-123',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          updatedAt: '2024-01-02T00:00:00.000Z',
+          versionId: 'abc123',
+        } as any;
+
+        const cleaned = cleanWorkflowForUpdate(workflow);
+
+        // Whitelist approach should only include allowed properties
+        expect(cleaned).toHaveProperty('name');
+        expect(cleaned).toHaveProperty('nodes');
+        expect(cleaned).toHaveProperty('connections');
+        expect(cleaned).toHaveProperty('settings');
+
+        // All new problematic properties should be excluded
+        expect(cleaned).not.toHaveProperty('homeProject');
+        expect(cleaned).not.toHaveProperty('scopes');
+        expect(cleaned).not.toHaveProperty('projectId');
+        expect(cleaned).not.toHaveProperty('id');
+        expect(cleaned).not.toHaveProperty('createdAt');
+        expect(cleaned).not.toHaveProperty('updatedAt');
+        expect(cleaned).not.toHaveProperty('versionId');
+      });
+
+      it('should include staticData when present (valid per n8n API spec)', () => {
+        const workflow = {
+          name: 'Test Workflow',
+          nodes: [],
+          connections: {},
+          staticData: { lastProcessedId: 12345, cursor: 'abc123' },
+        } as any;
+
+        const cleaned = cleanWorkflowForUpdate(workflow);
+
+        expect(cleaned).toHaveProperty('staticData');
+        expect(cleaned.staticData).toEqual({ lastProcessedId: 12345, cursor: 'abc123' });
+      });
+
+      it('should not include staticData when undefined', () => {
+        const workflow = {
+          name: 'Test Workflow',
+          nodes: [],
+          connections: {},
+        } as any;
+
+        const cleaned = cleanWorkflowForUpdate(workflow);
+
+        expect(cleaned).not.toHaveProperty('staticData');
+      });
+
+      it('should include all valid settings properties from n8n OpenAPI spec', () => {
+        const workflow = {
+          name: 'Test Workflow',
+          nodes: [],
+          connections: {},
+          settings: {
+            saveExecutionProgress: true,
+            saveManualExecutions: false,
+            saveDataErrorExecution: 'all' as const,
+            saveDataSuccessExecution: 'none' as const,
+            executionTimeout: 3600,
+            errorWorkflow: 'error-handler-wf-id',
+            timezone: 'America/New_York',
+            executionOrder: 'v1' as const,
+            callerPolicy: 'workflowsFromAList' as const,
+            callerIds: 'wf-1,wf-2,wf-3',
+            timeSavedPerExecution: 15,
+            availableInMCP: true,
+          },
+        } as any;
+
+        const cleaned = cleanWorkflowForUpdate(workflow);
+
+        // All properties from n8n OpenAPI spec should be preserved
+        expect(cleaned.settings).toEqual({
+          saveExecutionProgress: true,
+          saveManualExecutions: false,
+          saveDataErrorExecution: 'all',
+          saveDataSuccessExecution: 'none',
+          executionTimeout: 3600,
+          errorWorkflow: 'error-handler-wf-id',
+          timezone: 'America/New_York',
+          executionOrder: 'v1',
+          callerPolicy: 'workflowsFromAList',
+          callerIds: 'wf-1,wf-2,wf-3',
+          timeSavedPerExecution: 15,
+          availableInMCP: true,
+        });
       });
     });
   });

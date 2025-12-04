@@ -52,6 +52,10 @@ export interface WorkflowSettings {
   saveExecutionProgress?: boolean;
   executionTimeout?: number;
   errorWorkflow?: string;
+  callerPolicy?: 'any' | 'none' | 'workflowsFromSameOwner' | 'workflowsFromAList';
+  callerIds?: string;
+  timeSavedPerExecution?: number;
+  availableInMCP?: boolean;
 }
 
 export interface Workflow {
