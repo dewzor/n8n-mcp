@@ -138,5 +138,8 @@ n8n-mcp-wrapper.sh
 # MCP configuration files
 .mcp.json
 
+# Claude Code local settings (personal permissions)
+.claude/settings.local.json
+
 # Telemetry configuration (user-specific)
 ~/.n8n-mcp/
