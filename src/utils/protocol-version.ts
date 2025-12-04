@@ -19,8 +19,9 @@ export interface ProtocolNegotiationResult {
 
 /**
  * Standard MCP protocol version (latest)
+ * Updated to match MCP SDK 1.20.1's LATEST_PROTOCOL_VERSION
  */
-export const STANDARD_PROTOCOL_VERSION = '2025-03-26';
+export const STANDARD_PROTOCOL_VERSION = '2025-06-18';
 
 /**
  * n8n specific protocol version (what n8n expects)
@@ -29,11 +30,13 @@ export const N8N_PROTOCOL_VERSION = '2024-11-05';
 
 /**
  * Supported protocol versions in order of preference
+ * Matches MCP SDK 1.20.1: ['2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07']
  */
 export const SUPPORTED_VERSIONS = [
-  STANDARD_PROTOCOL_VERSION,
-  N8N_PROTOCOL_VERSION,
-  '2024-06-25', // Older fallback
+  STANDARD_PROTOCOL_VERSION,  // '2025-06-18'
+  '2025-03-26',               // Previous standard version
+  N8N_PROTOCOL_VERSION,       // '2024-11-05' for n8n compatibility
+  '2024-10-07',               // Older fallback (per MCP SDK)
 ];
 
 /**
